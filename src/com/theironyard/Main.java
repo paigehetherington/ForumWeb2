@@ -1,5 +1,6 @@
 package com.theironyard;
 
+import com.sun.corba.se.spi.activation.Server;
 import spark.ModelAndView;
 import spark.Session;
 import spark.Spark;
@@ -11,8 +12,8 @@ import java.util.HashMap;
 import java.util.concurrent.locks.ReadWriteLock;
 
 public class Main {
-    static HashMap<String, User> users = new HashMap<>();
-    static ArrayList<Message> messages = new ArrayList<>();
+//    static HashMap<String, User> users = new HashMap<>();
+//    static ArrayList<Message> messages = new ArrayList<>();
 
     //converting to use db
     public static void createTables(Connection conn) throws SQLException {
@@ -80,16 +81,21 @@ public class Main {
     }
 
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws SQLException {
 	// write your code here
-        users.put("Alice", new User("Alice", "pass"));
-        users.put("Bob", new User("Bob", "pass"));
-        users.put("Charlie", new User("Charlie", "pass"));
 
-        messages.add(new Message(0, -1, "Alice", "Hello everyone!"));
-        messages.add(new Message(1, -1, "Bob", "This is another thread!"));
-        messages.add(new Message(2, 0, "Charlie", "Cool thread, Alice!"));
-        messages.add(new Message(3, 2, "Alice", "Thanks Charlie!"));
+        Server.createWebServer().start();
+        Connection conn = DriverManager.getConnection("jdbc:h2:./main");
+        createTables(conn);
+
+//        users.put("Alice", new User("Alice", "pass"));
+//        users.put("Bob", new User("Bob", "pass"));
+//        users.put("Charlie", new User("Charlie", "pass"));
+//
+//        messages.add(new Message(0, -1, "Alice", "Hello everyone!"));
+//        messages.add(new Message(1, -1, "Bob", "This is another thread!"));
+//        messages.add(new Message(2, 0, "Charlie", "Cool thread, Alice!"));
+//        messages.add(new Message(3, 2, "Alice", "Thanks Charlie!"));
 
         Spark.get(
                 "/",
@@ -102,16 +108,17 @@ public class Main {
                     }
 
                     Session session = request.session();
-                    String name = session.attribute("loginName"); //pulling name from session (1 argument)
+                    String name = session.attribute("l" +
+                            "oginName"); //pulling name from session (1 argument)
 
 
                     HashMap m = new HashMap();
-                    ArrayList<Message> msgs = new ArrayList<Message>(); //don't display all messages
-                    for (Message message : messages) {
-                       if (message.replyId == replyIdNum) {
-                           msgs.add(message);
-                       }
-                    }
+                    ArrayList<Message> msgs = selectReplies(conn, replyIdNum);   //new ArrayList<Message>(); //don't display all messages
+//                    for (Message message : messages) {
+//                       if (message.replyId == replyIdNum) {
+//                           msgs.add(message);
+//                       }
+//                    }
                     m.put("messages",msgs);
                     m.put("name", name);
                     m.put("replyId", replyIdNum);
@@ -125,10 +132,10 @@ public class Main {
                 ((request, response) -> {
                     String name = request.queryParams("loginName");
                     String pass = request.queryParams("password");
-                    User user = users.get(name);
+                    User user = selectUser(conn, name);
                     if (user == null) {
-                        user = new User(name, pass);
-                        users.put(name, user);
+                        insertUser(conn, name, pass);
+
                     }
                     else if (!pass.equals(user.password)) {
                         Spark.halt(403); //if password doesn't match, throw error - 403 is forbidden error
@@ -148,12 +155,28 @@ public class Main {
                     int replyId = Integer.valueOf(request.queryParams("replyId"));
                     Session session = request.session();
                     String name = session.attribute("loginName");
-                    Message msg = new Message(messages.size(), replyId, name, text ); //hidden field in header.html creates loop
-                    messages.add(msg);
-                    response.redirect(request.headers("Referers")); //htttp referers (misspelled), keeps on same page
+                    User user = selectUser(conn, name);
+                    if (user == null) {
+                        throw new Exception("Not logged in!");
+                    }
+                    insertMessage(conn, replyId, text, user.id));
+                    response.redirect(request.headers("Referer")); //htttp referers (misspelled), keeps on same page
                     return null;
                 })
         );
+
+        Spark.post(
+                "/logout",
+                (request, response) -> {
+                    Session session = request.session();
+                    session.invalidate();
+                    response.redirect(request.headers("Referer"));
+                    return null;
+
+        }
+        );
+
+    }
 
 
     }
